@@ -1,176 +1,268 @@
-var aiConfig = editor.getOpt('ai')
+var aiConfig = editor.getOpt('ai') || {};
+var aiFunctions = editor.getOpt('aiFunctions') || [];
 
-var aiFunctions = editor.getOpt('aiFunctions');
+var AI_PROXY_MIGRATION_ERROR = '浏览器端模型 Key 已停用。请从 driverConfig.key 删除前端 Key，并将模型 Key 迁移到同源服务端。';
+var AI_LEGACY_DRIVER_ERROR = '浏览器直连模型驱动已停用。请改用同源 Proxy 或配置服务端 driverRequest。';
+var AI_HTML_FILTER_ERROR = '安全过滤器不可用，无法显示或插入 AI 结果。';
 
 var isMultiLine = function (text) {
-    return text.indexOf('\n') !== -1;
+    return /[\r\n]/.test(text);
 }
 
-var fetchStream = function (url, option, onStream, onFinish) {
-    fetch(url, Object.assign({
-        method: 'POST',
-    }, option)).then(response => {
-        if (!response.ok) {
-            onFinish({ code: -1, msg: `HTTP error! status: ${response.status}` })
-            return
+var sanitizeAIHtml = function (html) {
+    try {
+        var sanitizer = window.parent && window.parent.UE && window.parent.UE.sanitizeHtml;
+        if (typeof sanitizer !== 'function') {
+            return null;
         }
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-        let buffer = '';
-        const textList = []
+        var sanitized = sanitizer(String(html));
+        return typeof sanitized === 'string' ? sanitized : null;
+    } catch (e) {
+        return null;
+    }
+}
 
-        function processChunk(chunk) {
-            buffer += decoder.decode(chunk, { stream: true });
-            // 分割事件流，每个事件以"data:"开头，以两个换行符结束
-            const lines = buffer.split('\n');
-            for (let line of lines) {
-                line = line.trim();
-                if (line.startsWith('data:')) {
-                    const jsonStr = line.replace('data:', '').trim();
-                    if (jsonStr === '[DONE]') {
-                        onFinish({ code: 0, msg: 'ok', data: { text: textList.join('') } })
-                        return;
-                    }
-                    try {
-                        let text = null
-                        const data = JSON.parse(jsonStr);
-                        if (data.choices && data.choices.length > 0 && data.choices[0].delta) {
-                            text = data.choices[0].delta.content
-                        } else if (data.type) {
-                            // 兼容ModStart
-                            // {"type":"error","data":"xxx"}
-                            // {"type":"end","data":"xxx"}
-                            // {"type":"data","data":"xxx"}
-                            if (data.type === 'error') {
-                                onFinish({ code: -1, msg: data.data })
-                                return;
-                            } else if (data.type === 'end') {
-                                onFinish({ code: 0, msg: 'ok', data: { text: textList.join('') } })
-                                return;
-                            } else if (data.type === 'data') {
-                                text = data.data
-                            }
-                        }
-                        if (text !== null) {
-                            textList.push(text)
-                            onStream({ code: 0, msg: 'ok', data: { text: text } })
-                        } else {
-                            onFinish({ code: -1, msg: 'No text found!' })
-                            console.log('data:', data)
-                        }
-                    } catch (e) {
-                        onFinish({ code: -1, msg: 'JSON parse error!' + e })
-                    }
-                }
-            }
-            buffer = lines.pop() || '';
-        }
+var getSanitizedResultHtml = function (text, markdownConverter) {
+    try {
+        return sanitizeAIHtml(markdownConverter.makeHtml(String(text)));
+    } catch (e) {
+        return null;
+    }
+}
 
-        function read() {
-            reader.read().then(({ done, value }) => {
-                if (done) {
-                    if (buffer) processChunk(new Uint8Array());
-                    return;
-                }
-                processChunk(value);
-                read();
-            }).catch(error => {
-                onFinish({ code: -1, msg: 'Stream error!' + error })
-            });
-        }
-
-        read();
-    }).catch(error => {
-        onFinish({ code: -1, msg: 'Request error!' + error })
+var escapeHtmlText = function (text) {
+    var escaped = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    };
+    return String(text).replace(/[&<>"']/g, function (character) {
+        return escaped[character];
     });
 }
 
-var openAiCompletion = function (url, param, option) {
-    option = Object.assign({
-        body: null
-    }, option)
-    if (!option.body) {
-        option.body = {
-            model: aiConfig.driverConfig.model,
-            messages: [
-                { role: 'system', content: param.systemPromptText },
-                { role: 'user', content: param.promptText },
-            ],
-            stream: true,
+var fetchStream = function (url, option, onStream, onFinish) {
+    var finished = false;
+    var buffer = '';
+    var textList = [];
+    var decoder = new TextDecoder('utf-8');
+    var reader;
+
+    function finish(result) {
+        if (finished) {
+            return;
         }
+        finished = true;
+        if (reader) {
+            var completedReader = reader;
+            reader = null;
+            try {
+                var cancelResult = completedReader.cancel();
+                if (cancelResult && typeof cancelResult.catch === 'function') {
+                    cancelResult.catch(function () {});
+                }
+            } catch (e) {
+            }
+            try {
+                if (typeof completedReader.releaseLock === 'function') {
+                    completedReader.releaseLock();
+                }
+            } catch (e) {
+            }
+        }
+        onFinish(result);
     }
-    fetchStream(
-        url,
-        {
-            headers: {
-                'Authorization': `Bearer ${aiConfig.driverConfig.key}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(option.body)
-        },
-        param.onStream,
-        param.onFinish
-    )
+
+    function processDataLine(line) {
+        line = line.trim();
+        if (!line.startsWith('data:')) {
+            return false;
+        }
+        var jsonStr = line.slice(5).trim();
+        if (jsonStr === '[DONE]') {
+            finish({ code: 0, msg: 'ok', data: { text: textList.join('') } });
+            return true;
+        }
+
+        var data;
+        try {
+            data = JSON.parse(jsonStr);
+        } catch (e) {
+            finish({ code: -1, msg: 'AI 代理返回了无效的流数据。' });
+            return true;
+        }
+
+        if (data && data.type === 'error') {
+            finish({ code: -1, msg: String(data.data || 'AI 代理请求失败。') });
+            return true;
+        }
+        if (data && data.type === 'end') {
+            finish({ code: 0, msg: 'ok', data: { text: textList.join('') } });
+            return true;
+        }
+
+        var text = null;
+        if (data && data.type === 'data') {
+            text = data.data;
+        } else if (data && data.choices && data.choices.length && data.choices[0].delta) {
+            text = data.choices[0].delta.content;
+            // OpenAI-compatible streams may include role-only deltas.
+            if (text === undefined || text === null) {
+                return false;
+            }
+        }
+
+        if (typeof text !== 'string') {
+            finish({ code: -1, msg: 'AI 代理返回了不支持的流数据。' });
+            return true;
+        }
+        textList.push(text);
+        onStream({ code: 0, msg: 'ok', data: { text: text } });
+        return false;
+    }
+
+    function processBuffer(final) {
+        var lines = buffer.split(/\r?\n/);
+        if (!final) {
+            buffer = lines.pop() || '';
+        } else {
+            buffer = '';
+        }
+        for (var i = 0; i < lines.length; i++) {
+            if (processDataLine(lines[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function read() {
+        return reader.read().then(function (result) {
+            if (finished) {
+                return;
+            }
+            if (result.done) {
+                buffer += decoder.decode();
+                processBuffer(true);
+                if (!finished) {
+                    finish({ code: -1, msg: 'AI 代理流在结束标记前关闭。' });
+                }
+                return;
+            }
+            buffer += decoder.decode(result.value, { stream: true });
+            processBuffer(false);
+            if (!finished) {
+                return read();
+            }
+        });
+    }
+
+    var request;
+    try {
+        request = fetch(url, option);
+    } catch (error) {
+        finish({ code: -1, msg: 'AI 代理请求失败。' });
+        return null;
+    }
+    return Promise.resolve(request).then(function (response) {
+        if (!response.ok) {
+            finish({ code: -1, msg: 'AI 代理请求失败，HTTP 状态：' + response.status });
+            return;
+        }
+        if (!response.body || typeof response.body.getReader !== 'function') {
+            finish({ code: -1, msg: 'AI 代理没有返回 SSE 流。' });
+            return;
+        }
+        reader = response.body.getReader();
+        return read();
+    }).catch(function () {
+        finish({ code: -1, msg: 'AI 代理连接中断。' });
+    });
 }
 
-var drivers = {
-    'ModStart': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url, param, {
-            body: {
-                systemPrompt: param.systemPromptText,
-                prompt: param.promptText
-            }
-        })
-    },
-    'OpenAi': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://api.openai.com/v1/chat/completions', param)
-    },
-    'DeepSeek': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://api.deepseek.com/v1/chat/completions', param)
-    },
-    'Anthropic': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://api.anthropic.com/v1/messages', param)
-    },
-    'Google': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', param)
-    },
-    'Baidu': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/completions', param)
-    },
-    'Alibaba': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', param)
-    },
-    'Tencent': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://hunyuan.tencentcloudapi.com/v1/chat/completions', param)
-    },
-    'Huawei': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://pangu.huaweicloud.com/v1/chat/completions', param)
-    },
-    'ByteDance': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', param)
-    },
-    'Zhipu': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://open.bigmodel.cn/api/paas/v4/chat/completions', param)
-    },
-    'Moonshot': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://api.moonshot.cn/v1/chat/completions', param)
-    },
-    'iFlytek': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://spark-api-open.xf-yun.com/v1/chat/completions', param)
-    },
-    'Volcengine': function (param) {
-        openAiCompletion(aiConfig.driverConfig.url || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', param)
-    },
+var resolveProxyUrl = function (value) {
+    if (typeof value !== 'string' || !value.trim()) {
+        throw new Error('请明确配置同源 AI 代理 URL。');
+    }
+    var parsed;
+    try {
+        parsed = new window.URL(value.trim(), window.location.href);
+    } catch (e) {
+        throw new Error('AI 代理 URL 无效。');
+    }
+    if (parsed.username || parsed.password) {
+        throw new Error('AI 代理 URL 不能包含用户名或密码。');
+    }
+    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.origin !== window.location.origin) {
+        throw new Error('AI 代理 URL 必须与编辑器页面同源。');
+    }
+    return parsed.href;
 }
+
+var readCsrfToken = function (config) {
+    var token;
+    try {
+        token = config.csrfToken;
+        if (typeof token === 'function') {
+            token = token.call(config);
+        }
+    } catch (e) {
+        throw new Error('无法读取 AI 代理所需的 CSRF token。');
+    }
+    if (typeof token !== 'string' || !token.trim()) {
+        throw new Error('请配置与当前会话绑定的 CSRF token。');
+    }
+    return token.trim();
+}
+
+var proxyCompletion = function (param) {
+    var config = aiConfig.driverConfig || {};
+    var url;
+    var csrfToken;
+    try {
+        url = resolveProxyUrl(config.url);
+        csrfToken = readCsrfToken(config);
+    } catch (error) {
+        param.onFinish({ code: -1, msg: error.message });
+        return null;
+    }
+    return fetchStream(url, {
+        method: 'POST',
+        mode: 'same-origin',
+        credentials: 'same-origin',
+        redirect: 'error',
+        headers: {
+            'Accept': 'text/event-stream',
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken
+        },
+        body: JSON.stringify({
+            systemPromptText: param.systemPromptText,
+            promptText: param.promptText
+        })
+    }, param.onStream, param.onFinish);
+}
+
+var legacyDrivers = [
+    'ModStart', 'OpenAi', 'DeepSeek', 'Anthropic', 'Google', 'Baidu', 'Alibaba',
+    'Tencent', 'Huawei', 'ByteDance', 'Zhipu', 'Moonshot', 'iFlytek', 'Volcengine'
+];
 
 function getRequest(driver) {
-    if (aiConfig.driverRequest) {
-        return aiConfig.driverRequest
+    if (typeof aiConfig.driverRequest === 'function') {
+        return aiConfig.driverRequest;
     }
-    if (driver in drivers) {
-        return drivers[driver]
+    if (driver === 'Proxy') {
+        return proxyCompletion;
     }
-    return null
+    if (legacyDrivers.indexOf(driver) !== -1) {
+        return function (param) {
+            param.onFinish({ code: -1, msg: AI_LEGACY_DRIVER_ERROR });
+        };
+    }
+    return null;
 }
 
 var converter = new window.showdown.Converter();
@@ -217,7 +309,8 @@ var Ai = {
                     if (!this.resultText) {
                         return '';
                     }
-                    return converter.makeHtml(this.resultText);
+                    var html = getSanitizedResultHtml(this.resultText, converter);
+                    return html === null ? '' : html;
                 },
                 resultHeight: function () {
                     let height = 255
@@ -239,49 +332,78 @@ var Ai = {
                         if (!f.enable(enableParam)) {
                             return null;
                         }
-                        f.prompt = f.prompt.replace(/\{selectText\}/g, enableParam.selectText);
-                        f.prompt = f.prompt.replace(/\{html\}/g, editor.getContent());
-                        f.param = Object.assign({}, AiDefaultAiFunctionParam, f.param);
-                        return f;
+                        var prompt = String(f.prompt || '');
+                        prompt = prompt.replace(/\{selectText\}/g, function () {
+                            return enableParam.selectText;
+                        });
+                        var html = editor.getContent();
+                        prompt = prompt.replace(/\{html\}/g, function () {
+                            return html;
+                        });
+                        return Object.assign({}, f, {
+                            prompt: prompt,
+                            param: Object.assign({}, AiDefaultAiFunctionParam, f.param)
+                        });
                     }).filter(function (f) {
                         return !!f;
                     });
                 },
                 doSubmit: function () {
                     if (this.loading) {
-                        return;
+                        return null;
+                    }
+                    this.resultError = '';
+                    var driverConfig = aiConfig.driverConfig || {};
+                    if (driverConfig.key !== undefined && driverConfig.key !== null && String(driverConfig.key).length > 0) {
+                        this.resultError = AI_PROXY_MIGRATION_ERROR;
+                        editor.tipError(AI_PROXY_MIGRATION_ERROR);
+                        return null;
                     }
                     if (!this.systemPromptText) {
                         editor.tipError('请输入系统提示语');
-                        return;
+                        return null;
                     }
-                    this.loading = true;
-                    this.resultError = '';
-                    this.resultText = '';
                     var driverRequest = getRequest(aiConfig.driver)
                     if (!driverRequest) {
-                        editor.tipError('未找到驱动');
-                        return;
+                        this.resultError = '未找到驱动';
+                        editor.tipError(this.resultError);
+                        return null;
                     }
-                    driverRequest({
-                        systemPromptText: this.systemPromptText,
-                        promptText: this.promptText,
-                        onStream: (res) => {
-                            if (res.code) {
-                                this.resultError = res.msg;
-                                return;
+                    this.loading = true;
+                    this.resultText = '';
+                    var self = this;
+                    try {
+                        return driverRequest({
+                            systemPromptText: this.systemPromptText,
+                            promptText: this.promptText,
+                            onStream: function (res) {
+                                if (res.code) {
+                                    self.resultError = res.msg;
+                                    self.loading = false;
+                                    self.resultText = '';
+                                    return;
+                                }
+                                self.resultText += String(res.data && res.data.text || '');
+                            },
+                            onFinish: function (res) {
+                                self.loading = false;
+                                if (res.code) {
+                                    self.resultError = res.msg;
+                                    self.resultText = '';
+                                    return;
+                                }
+                                self.resultText = String(res.data && res.data.text || '');
+                                if (self.resultText && getSanitizedResultHtml(self.resultText, converter) === null) {
+                                    self.resultError = AI_HTML_FILTER_ERROR;
+                                }
                             }
-                            this.resultText += res.data.text
-                        },
-                        onFinish: (res) => {
-                            this.loading = false;
-                            if (res.code) {
-                                this.resultError = res.msg;
-                                return;
-                            }
-                            this.resultText = res.data.text;
-                        }
-                    })
+                        });
+                    } catch (e) {
+                        this.loading = false;
+                        this.resultError = 'AI 请求失败。';
+                        editor.tipError(this.resultError);
+                        return null;
+                    }
                 },
                 doSubmitFunction: function (f) {
                     this.submitFunction = f;
@@ -290,51 +412,77 @@ var Ai = {
                     this.showInsert = f.param.showInsert;
                     this.showReplace = f.param.showReplace;
                     this.showReplaceAll = f.param.showReplaceAll;
-                    this.doSubmit()
+                    return this.doSubmit()
                 },
                 doSubmitDirect: function () {
                     this.submitFunction = null;
                     this.systemPromptText = this.inputText || '';
+                    this.promptText = this.selectText || '';
                     if (!this.systemPromptText) {
                         editor.tipError('请输入系统提示语');
-                        return;
+                        return null;
                     }
                     this.showInsert = AiDefaultAiFunctionParam.showInsert;
                     this.showReplace = AiDefaultAiFunctionParam.showReplace;
                     this.showReplaceAll = AiDefaultAiFunctionParam.showReplaceAll;
-                    this.doSubmit()
+                    return this.doSubmit()
+                },
+                getInsertError: function () {
+                    this.resultError = AI_HTML_FILTER_ERROR;
+                    editor.tipError(AI_HTML_FILTER_ERROR);
+                    return false;
                 },
                 doInsert: function () {
+                    var multiLine = isMultiLine(this.resultText);
+                    var safeHtml = multiLine
+                        ? getSanitizedResultHtml(this.resultText, converter)
+                        : (this.selectText ? null : sanitizeAIHtml(escapeHtmlText(this.resultText)));
+                    if ((multiLine || !this.selectText) && safeHtml === null) {
+                        return this.getInsertError();
+                    }
                     editor.fireEvent('saveScene');
                     if (this.selectText) {
-                        if (isMultiLine(this.resultText)) {
-                            Ai.runtime.range.insertNode(document.createRange().createContextualFragment(this.resultHtml));
+                        if (multiLine) {
+                            Ai.runtime.range.insertNode(document.createRange().createContextualFragment(safeHtml));
                         } else {
                             Ai.runtime.range.insertNode(document.createTextNode(this.resultText));
                         }
+                    } else if (multiLine) {
+                        editor.execCommand('insertHtml', safeHtml);
                     } else {
-                        if (isMultiLine(this.resultText)) {
-                            editor.execCommand('insertHtml', this.resultHtml);
-                        } else {
-                            editor.execCommand('insertHtml', this.resultText);
-                        }
+                        editor.execCommand('insertHtml', safeHtml);
                     }
+                    editor.fireEvent('saveScene');
                     dialog.close(true);
+                    return true;
                 },
                 doReplace: function () {
+                    var multiLine = isMultiLine(this.resultText);
+                    var safeHtml = multiLine ? getSanitizedResultHtml(this.resultText, converter) : null;
+                    if (multiLine && safeHtml === null) {
+                        return this.getInsertError();
+                    }
                     editor.fireEvent('saveScene');
                     Ai.runtime.range.deleteContents();
-                    if (isMultiLine(this.resultText)) {
-                        Ai.runtime.range.insertNode(document.createRange().createContextualFragment(this.resultHtml));
+                    if (multiLine) {
+                        Ai.runtime.range.insertNode(document.createRange().createContextualFragment(safeHtml));
                     } else {
                         Ai.runtime.range.insertNode(document.createTextNode(this.resultText));
                     }
+                    editor.fireEvent('saveScene');
                     dialog.close(true);
+                    return true;
                 },
                 doReplaceAll: function () {
+                    var safeHtml = getSanitizedResultHtml(this.resultText, converter);
+                    if (safeHtml === null) {
+                        return this.getInsertError();
+                    }
                     editor.fireEvent('saveScene');
-                    editor.setContent(this.resultText);
+                    editor.setContent(safeHtml);
+                    editor.fireEvent('saveScene');
                     dialog.close(true);
+                    return true;
                 }
             }
         });

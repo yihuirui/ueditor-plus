@@ -4,6 +4,8 @@
 (function () {
     var paths = [
             'editor.js',
+            'core/sanitizer.js',
+            'vendor/DOMPurify/dist/purify.isolated.js',
             'core/browser.js',
             'core/utils.js',
             'core/EventBase.js',

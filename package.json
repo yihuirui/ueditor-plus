@@ -18,7 +18,10 @@
   ],
   "main": "dist-min/ueditor.all.js",
   "scripts": {
-    "build": "make build"
+    "build": "make build",
+    "test": "node --test tests/security-*.cjs",
+    "test:dist": "node --test tests/integration-security*.cjs",
+    "test:browser": "node --test tests/integration-security-browser.cjs"
   },
   "keywords": [
     "ueditor",
@@ -44,8 +47,10 @@
     "@babel/cli": "^7.28.3",
     "@babel/core": "^7.28.5",
     "@babel/preset-env": "^7.28.5",
+    "dompurify": "3.4.17",
     "grunt": "~0.4.1",
     "grunt-cli": "^1.5.0",
+    "jsdom": "26.1.0",
     "uglify-js": "^3.17.4"
   }
 }
