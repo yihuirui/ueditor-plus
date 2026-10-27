@@ -17,12 +17,22 @@
 - 移除过时、无用的插件支持，不断完善使用体验
 - 图片、文件、视频上传配置化定制增强
 - 演示界面重构，右上角可直接查看当前演示界面代码
-- 兼容现有UEditor，实现无缝切换
+- 提供 UEditor 兼容接口；迁移时请同时检查下方的安全接入说明
 
 ## 相关链接
 
 - 在线演示：[https://open.tecmz.com/ueditor-plus/_examples/](https://open.tecmz.com/ueditor-plus/_examples/)
 - 使用文档： [https://open.tecmz.com/ueditor-plus](https://open.tecmz.com/ueditor-plus)
+
+## 安全接入与迁移
+
+本分支对 HTML 输入和 AI 接入采用更严格的默认边界，升级前请检查以下行为变化：
+
+- 编辑器输入、Markdown / DOCX 导入和 AI 结果共用 HTML 净化逻辑。正常文本格式、表格、链接和图片应予保留；脚本、事件属性、危险链接及可伪造的内部执行元数据不再作为可保存的富文本内容。保留的 iframe 使用受限沙箱，依赖 iframe 脚本或同源权限的集成需要调整。详见 [HTML 安全边界](docs/html-security.md)。
+- AI 默认通过明确配置的同源后端代理调用；不要在浏览器配置中填写模型 API Key。原先使用厂商直连驱动的集成需要迁移。代理地址和会话绑定的 CSRF 令牌由宿主应用提供，鉴权、额度限制及模型密钥保管由后端负责。详见 [AI 代理接入](docs/ai-proxy.md)。
+- 客户端净化和文件类型限制不能替代应用后端的鉴权、上传校验，以及存储和展示边界的安全处理。仓库内的 `_demo_server` 是演示接口。
+
+安全回归、构建与浏览器验证方式见 [验证说明](docs/security-validation.md)。
 
 ## 使用遇到问题
 

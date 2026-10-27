@@ -192,7 +192,7 @@
 
                     me.fireEvent("aftergetcontent");
 
-                    var content = root.toHtml(true);
+                    var content = UE.sanitizeHtml(root.toHtml(true));
 
                     sourceEditor = createSourceEditor(me.iframe.parentNode);
 
@@ -202,9 +202,13 @@
 
                     me.setContent = function (html) {
                         //这里暂时不触发事件，防止报错
+                        html = UE.sanitizeHtml(html);
                         var root = UE.htmlparser(html);
+                        if (me.options.filterRules) {
+                            UE.filterNode(root, me.options.filterRules);
+                        }
                         me.filterInputRule(root);
-                        html = root.toHtml();
+                        html = UE.sanitizeHtml(root.toHtml());
                         sourceEditor.setContent(html);
                     };
 
@@ -221,7 +225,7 @@
                     //重置getContent，源码模式下取值也能是最新的数据
                     oldGetContent = me.getContent;
                     me.getContent = function () {
-                        return (
+                        return UE.sanitizeHtml(
                             sourceEditor.getContent() ||
                             "<p>" + (browser.ie ? "" : "<br/>") + "</p>"
                         );

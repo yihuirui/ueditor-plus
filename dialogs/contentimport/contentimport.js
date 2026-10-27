@@ -8,6 +8,46 @@ contentImport.init = function (opt, callbacks) {
     addUploadButtonListener();
     addOkListener();
 };
+function clearImportPreview() {
+    var result = document.querySelector(".file-result");
+    if (result) {
+        result.textContent = "";
+    }
+    $(".file-result").hide();
+}
+function sanitizeImportHtml(html) {
+    var ue = parent && parent.UE;
+    if (!ue || typeof ue.sanitizeHtml !== "function") {
+        throw new Error("HTML净化不可用，已拒绝导入");
+    }
+    var clean = ue.sanitizeHtml(html);
+    if (typeof clean !== "string") {
+        throw new Error("HTML净化失败，已拒绝导入");
+    }
+    return clean;
+}
+function renderImportResult(html, successMessage) {
+    contentImport.data.result = null;
+    try {
+        var clean = sanitizeImportHtml(html);
+        var result = document.querySelector(".file-result");
+        if (!result) {
+            throw new Error("导入预览不可用");
+        }
+        // jQuery 1.10 is intentionally kept by this project. Assign only the
+        // sanitized string through the browser DOM; jQuery .html() can rewrite
+        // sanitized markup in affected old versions.
+        result.innerHTML = clean;
+        contentImport.data.result = clean;
+        $(".file-result").show();
+        $(".file-tip").text(successMessage || "转换成功");
+        return true;
+    } catch (error) {
+        clearImportPreview();
+        $(".file-tip").text(error && error.message ? error.message : "内容净化失败，已拒绝导入");
+        return false;
+    }
+}
 function upload (blob) {
      /* 创建Ajax并提交 
         暂时采用同步方式
@@ -29,7 +69,12 @@ function upload (blob) {
 
     xhr.send(fd)
     if (xhr.status == 200) {
-        var json = (new Function('return ' + xhr.responseText))()
+        var json;
+        try {
+            json = JSON.parse(xhr.responseText);
+        } catch (e) {
+            return blob;
+        }
         if (json.state == 'SUCCESS' && json.url) {
             return url + json.url
         } else {
@@ -39,8 +84,9 @@ function upload (blob) {
 
 }
 function processWord(file) {
-    $('.file-tip').html('正在转换Word文件，请稍后...');
-    $('.file-result').html('').hide();
+    $('.file-tip').text('正在转换Word文件，请稍后...');
+    contentImport.data.result = null;
+    clearImportPreview();
     var reader = new FileReader();
     reader.onload = function (loadEvent) {
         mammoth.convertToHtml({
@@ -63,15 +109,17 @@ function processWord(file) {
             })
         })
             .then(function displayResult(result) {
-                $('.file-tip').html('转换成功');
-                contentImport.data.result = result.value;
-                $('.file-result').html(result.value).show();
+                renderImportResult(result.value);
             }, function (error) {
-                $('.file-tip').html('Word文件转换失败:' + error);
+                contentImport.data.result = null;
+                clearImportPreview();
+                $('.file-tip').text('Word文件转换失败:' + error);
             });
     };
     reader.onerror = function (loadEvent) {
-        $('.file-tip').html('Word文件转换失败:' + loadEvent);
+        contentImport.data.result = null;
+        clearImportPreview();
+        $('.file-tip').text('Word文件转换失败:' + loadEvent);
     };
     reader.readAsArrayBuffer(file);
 }
@@ -79,20 +127,21 @@ function processWord(file) {
 function processMarkdown( markdown ){
     var converter = new showdown.Converter();
     var html = converter.makeHtml(markdown);
-    $('.file-tip').html('转换成功');
-    contentImport.data.result = html;
-    $('.file-result').html(html).show();
+    renderImportResult(html);
 }
 
 function processMarkdownFile(file) {
-    $('.file-tip').html('正在转换Markdown文件，请稍后...');
-    $('.file-result').html('').hide();
+    $('.file-tip').text('正在转换Markdown文件，请稍后...');
+    contentImport.data.result = null;
+    clearImportPreview();
     var reader = new FileReader();
     reader.onload = function (loadEvent) {
         processMarkdown( loadEvent.target.result );
     };
     reader.onerror = function (loadEvent) {
-        $('.file-tip').html('Markdown文件转换失败:' + loadEvent);
+        contentImport.data.result = null;
+        clearImportPreview();
+        $('.file-tip').text('Markdown文件转换失败:' + loadEvent);
     };
     reader.readAsText(file, "UTF-8");
 }
@@ -111,7 +160,9 @@ function addUploadButtonListener() {
                 processMarkdownFile(file);
                 break;
             default:
-                $('.file-tip').html('不支持的文件格式:' + fileExt);
+                contentImport.data.result = null;
+                clearImportPreview();
+                $('.file-tip').text('不支持的文件格式:' + fileExt);
                 break;
         }
     });
@@ -125,6 +176,16 @@ function addOkListener() {
     dialog.onok = function () {
         if (!contentImport.data.result) {
             alert('请先上传文件识别内容');
+            return false;
+        }
+        try {
+            // Sanitize again at confirmation because other dialog listeners may
+            // alter the stored preview value after it was rendered.
+            contentImport.data.result = sanitizeImportHtml(contentImport.data.result);
+        } catch (error) {
+            contentImport.data.result = null;
+            clearImportPreview();
+            $('.file-tip').text(error && error.message ? error.message : '内容净化失败，已拒绝导入');
             return false;
         }
         editor.fireEvent('saveScene');

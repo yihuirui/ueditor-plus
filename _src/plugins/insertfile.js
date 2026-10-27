@@ -38,6 +38,18 @@ UE.plugin.register("insertfile", function () {
         return maps[ext] ? maps[ext] : maps["unknown"];
     }
 
+    function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, function (char) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[char];
+        });
+    }
+
     return {
         commands: {
             insertfile: {
@@ -65,13 +77,13 @@ UE.plugin.register("insertfile", function () {
                         html +=
                             '<p>' +
                             '<a style="background:#EEE;padding:10px;border-radius:5px;line-height:1.5em;display:inline-flex;align-items:center;" href="' +
-                            item.url +
+                            escapeHtml(item.url) +
                             '" title="' +
-                            title +
+                            escapeHtml(title) +
                             '" target="_blank">' +
-                            '<img style="vertical-align:middle;margin-right:0.5em;height:1.5em;" src="' + icon + '" _src="' + icon + '" />' +
+                            '<img style="vertical-align:middle;margin-right:0.5em;height:1.5em;" src="' + escapeHtml(icon) + '" _src="' + escapeHtml(icon) + '" />' +
                             '<span style="color:#111111;line-height:1.5em;flex-grow:1;">' +
-                            title +
+                            escapeHtml(title) +
                             "</span>" +
                             "</a>" +
                             "</p>";
