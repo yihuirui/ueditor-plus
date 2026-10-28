@@ -202,11 +202,11 @@
 
             // 当有文件添加进来时执行，负责view的创建
             function addFile(file) {
-                var $li = $('<li id="' + file.id + '">' +
-                        '<p class="title">' + file.name + '</p>' +
+                var $li = $('<li>' +
+                        '<p class="title"></p>' +
                         '<p class="imgWrap"></p>' +
                         '<p class="progress"><span></span></p>' +
-                        '</li>'),
+                        '</li>').attr('id', file.id),
 
                     $btns = $('<div class="file-panel">' +
                         '<span class="cancel">' + lang.uploadDelete + '</span>' +
@@ -237,13 +237,16 @@
                         $info.text(text).show();
                     };
 
+                $li.find('p.title').text(file.name);
+
                 if (file.getStatus() === 'invalid') {
                     showError(file.statusText);
                 } else {
                     $wrap.text(lang.uploadPreview);
                     if ('|png|jpg|jpeg|bmp|gif|'.indexOf('|' + file.ext.toLowerCase() + '|') == -1) {
-                        $wrap.empty().addClass('notimage').append('<i class="file-preview file-type-' + file.ext.toLowerCase() + '"></i>' +
-                            '<span class="file-title" title="' + file.name + '">' + file.name + '</span>');
+                        var $icon = $('<i></i>').addClass('file-preview').addClass('file-type-' + file.ext.toLowerCase()),
+                            $fileTitle = $('<span class="file-title"></span>').attr('title', file.name).text(file.name);
+                        $wrap.empty().addClass('notimage').append($icon).append($fileTitle);
                     } else {
                         if (browser.ie && browser.version <= 7) {
                             $wrap.text(lang.uploadNoPreview);
@@ -729,7 +732,7 @@
                     } else {
                         var ic = document.createElement('i'),
                             textSpan = document.createElement('span');
-                        textSpan.innerHTML = list[i].original || list[i].url.substr(list[i].url.lastIndexOf('/') + 1);
+                        textSpan.textContent = list[i].original || list[i].url.substr(list[i].url.lastIndexOf('/') + 1);
                         preview = document.createElement('div');
                         preview.appendChild(ic);
                         preview.appendChild(textSpan);

@@ -34,6 +34,7 @@ UE.commands["inserthtml"] = {
         if (!html) {
             return;
         }
+        html = UE.sanitizeHtml(html);
         if (me.fireEvent("beforeinserthtml", html) === true) {
             return;
         }
@@ -51,6 +52,9 @@ UE.commands["inserthtml"] = {
             me.filterInputRule(root);
             html = root.toHtml();
         }
+        // Custom input rules may generate markup, so clean once more at the
+        // actual DOM sink. `notNeedFilter` skips editor transforms, not safety.
+        html = UE.sanitizeHtml(html);
         div.innerHTML = utils.trim(html);
 
         if (!range.collapsed) {

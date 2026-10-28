@@ -123,6 +123,14 @@ UE.plugins["link"] = function () {
     UE.commands["link"] = {
         execCommand: function (cmdName, opt) {
             var range;
+            var href = opt && (opt.href || opt._href);
+            var safeHref =
+                typeof UE.sanitizeUrl === "function" ? UE.sanitizeUrl(href) : "";
+            if (!safeHref) {
+                return;
+            }
+            opt.href = safeHref;
+            opt._href = safeHref;
             opt._href && (opt._href = utils.unhtml(opt._href, /[<">]/g));
             opt.href && (opt.href = utils.unhtml(opt.href, /[<">]/g));
             opt.textValue && (opt.textValue = utils.unhtml(opt.textValue, /[<">]/g));

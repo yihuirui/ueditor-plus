@@ -169,7 +169,7 @@ UE.plugins["paste"] = function () {
             html = div.innerHTML; //.replace(/>(?:(\s|&nbsp;)*?)</g,'><');
 
             //过滤word粘贴过来的冗余属性
-            html = UE.filterWord(html);
+            html = UE.sanitizeHtml(UE.filterWord(html));
             //取消了忽略空白的第二个参数，粘贴过来的有些是有空白的，会被套上相关的标签
             var root = UE.htmlparser(html);
             //如果给了过滤规则就先进行过滤
@@ -196,6 +196,7 @@ UE.plugins["paste"] = function () {
             if (!html.html) {
                 return;
             }
+            html.html = UE.sanitizeHtml(html.html);
             root = UE.htmlparser(html.html, true);
             //如果开启了纯文本模式
             if (me.queryCommandState("pasteplain") === 1) {

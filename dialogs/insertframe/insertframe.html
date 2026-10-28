@@ -92,6 +92,7 @@
 
     function queding() {
         var url = $G("url").value.replace(/^\s*|\s*$/ig, ""),
+            sanitizer = parent && parent.UE,
             width = $G("width").value,
             height = $G("height").value,
             scroll = $G("scroll"),
@@ -103,15 +104,37 @@
             alert(lang.enterAddress);
             return false;
         }
-        newIframe.setAttribute("src", /http:\/\/|https:\/\//ig.test(url) ? url : "http://" + url);
+        if (
+            !sanitizer ||
+            typeof sanitizer.sanitizeUrl !== "function" ||
+            typeof sanitizer.sanitizeHtml !== "function"
+        ) {
+            alert("内容安全检查不可用，已拒绝插入 iframe");
+            return false;
+        }
+        var safeUrl = sanitizer.sanitizeUrl(url, ["http:", "https:"]);
+        if (!safeUrl) {
+            alert("只允许安全的 HTTP 或 HTTPS iframe 地址");
+            return false;
+        }
+        newIframe.setAttribute("src", safeUrl);
+        newIframe.setAttribute("sandbox", "");
+        newIframe.setAttribute("referrerpolicy", "no-referrer");
         /^[1-9]+[.]?\d*$/g.test(width) ? newIframe.setAttribute("width", width) : "";
         /^[1-9]+[.]?\d*$/g.test(height) ? newIframe.setAttribute("height", height) : "";
         scroll.checked ? newIframe.setAttribute("scrolling", "yes") : newIframe.setAttribute("scrolling", "no");
         frameborder.checked ? newIframe.setAttribute("frameborder", "1", 0) : newIframe.setAttribute("frameborder", "0", 0);
         float ? newIframe.setAttribute("align", float) : newIframe.setAttribute("align", "");
         if (iframe) {
-            iframe.parentNode.insertBefore(newIframe, iframe);
-            domUtils.remove(iframe);
+            var safeMarkup = sanitizer.sanitizeHtml(newIframe.outerHTML),
+                holder = editor.document.createElement("div");
+            holder.innerHTML = safeMarkup;
+            var safeIframe = holder.getElementsByTagName("iframe")[0];
+            if (!safeIframe) {
+                alert("iframe净化失败，已拒绝更新");
+                return false;
+            }
+            iframe.parentNode.replaceChild(safeIframe, iframe);
         } else {
             div = editor.document.createElement("div");
             div.appendChild(newIframe);

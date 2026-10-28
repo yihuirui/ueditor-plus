@@ -632,19 +632,14 @@
 
         // AI智能相关配置
         , ai: {
-            // 大模型驱动
-            // ModStart
-            // OpenAi、DeepSeek、Anthropic、Google、Baidu、Alibaba、Tencent、Huawei
-            // ByteDance、Zhipu、Moonshot、iFlytek、Volcengine
-            driver: 'OpenAi',
-            // 大模型对接配置
+            // 内置驱动只请求宿主同源 AI 代理，不直接连接模型供应商
+            driver: 'Proxy',
+            // 代理 URL 必须显式配置为同源地址；模型 Key 只放服务端环境变量
             driverConfig: {
-                // 模型API地址，留空使用默认
+                // 例如：/api/ueditor/ai；留空时拒绝请求，不回落到厂商地址
                 url: '',
-                // 大模型平台Key
-                key: '',
-                // 大模型平台模型
-                model: '',
+                // 会话绑定的 CSRF token，支持字符串或每次请求读取新值的函数
+                csrfToken: '',
             },
             // 自定义接入
             // driverRequest: function (option) {

@@ -845,7 +845,7 @@
             var root = UE.htmlparser(me.body.innerHTML, ignoreBlank);
             me.filterOutputRule(root);
             me.fireEvent("aftergetcontent", cmd, root);
-            return root.toHtml(formatter);
+            return UE.sanitizeHtml(root.toHtml(formatter));
         },
 
         /**
@@ -967,11 +967,17 @@
             var me = this;
 
             me.fireEvent("beforesetcontent", html);
+            html = UE.sanitizeHtml(html);
             var root = UE.htmlparser(html);
+            if (me.options.filterRules) {
+                UE.filterNode(root, me.options.filterRules);
+            }
             me.filterInputRule(root);
-            html = root.toHtml();
+            html = UE.sanitizeHtml(root.toHtml());
 
-            me.body.innerHTML = (isAppendTo ? me.body.innerHTML : "") + html;
+            me.body.innerHTML = UE.sanitizeHtml(
+                (isAppendTo ? me.body.innerHTML : "") + html
+            );
 
             function isCdataDiv(node) {
                 return node.tagName == "DIV" && node.getAttribute("cdata_tag");
@@ -1545,6 +1551,7 @@
 
             return function (cont) {
                 var me = this;
+                cont = UE.sanitizeHtml(cont);
                 me.body.innerHTML = '<p id="initContent">' + cont + "</p>";
 
                 me.addListener("firstBeforeExecCommand focus", clear);
