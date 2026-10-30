@@ -19,9 +19,13 @@
   "main": "dist-min/ueditor.all.js",
   "scripts": {
     "build": "make build",
+    "sync:examples": "node scripts/sync-examples.js --sync",
+    "check:examples": "node scripts/sync-examples.js --check",
     "test": "node --test tests/security-*.cjs",
+    "test:example-sync": "node --test tests/integration-example-sync.cjs",
     "test:dist": "node --test tests/integration-security*.cjs",
-    "test:browser": "node --test tests/integration-security-browser.cjs"
+    "test:browser": "node --test tests/integration-security-browser.cjs",
+    "test:examples:browser": "node --test tests/integration-examples-browser.cjs"
   },
   "keywords": [
     "ueditor",
