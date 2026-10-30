@@ -31,6 +31,22 @@ jobs:
             - name: Build dist and dist-min
               run: npm run build
 
+            - name: Verify committed integration assets
+              run: |
+                  npm run test:example-sync
+                  npm run check:examples
+                  git diff --exit-code -- \
+                    _examples-integrate/vue2/public/static/UEditorPlus \
+                    _examples-integrate/vue3/public/static/UEditorPlus \
+                    _examples-integrate/reactx/public/static/UEditorPlus
+                  if [ -n "$(git ls-files --others --exclude-standard -- \
+                    _examples-integrate/vue2/public/static/UEditorPlus \
+                    _examples-integrate/vue3/public/static/UEditorPlus \
+                    _examples-integrate/reactx/public/static/UEditorPlus)" ]; then
+                    echo "Generated integration files are missing from the commit."
+                    exit 1
+                  fi
+
             - name: Verify generated security distribution
               run: npm run test:dist
 
