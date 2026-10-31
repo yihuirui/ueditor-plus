@@ -1,0 +1,55 @@
+name: Pull Request Verification
+
+on:
+    pull_request:
+        branches:
+            - "master"
+
+permissions:
+    contents: read
+
+jobs:
+    verify:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  persist-credentials: false
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: .nvmrc
+                  cache: npm
+
+            - name: Install dependencies
+              run: npm ci --ignore-scripts
+
+            - name: Run source security regressions
+              run: npm test
+
+            - name: Run example sync safety regressions
+              run: npm run test:example-sync
+
+            - name: Build distributions and synchronize examples
+              run: npm run build
+
+            - name: Verify generated security distribution
+              run: npm run test:dist
+
+            - name: Verify committed static example bundles
+              run: |
+                  npm run check:examples
+                  git diff --exit-code -- \
+                    _examples-integrate/vue2/public/static/UEditorPlus \
+                    _examples-integrate/vue3/public/static/UEditorPlus \
+                    _examples-integrate/reactx/public/static/UEditorPlus
+                  if [ -n "$(git ls-files --others --exclude-standard -- \
+                    _examples-integrate/vue2/public/static/UEditorPlus \
+                    _examples-integrate/vue3/public/static/UEditorPlus \
+                    _examples-integrate/reactx/public/static/UEditorPlus)" ]; then
+                    echo "Generated integration files are missing from the commit."
+                    exit 1
+                  fi
