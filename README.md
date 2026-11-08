@@ -8,6 +8,8 @@
 [![star](https://gitee.com/modstart-lib/ueditor-plus/badge/star.svg)](https://gitee.com/modstart-lib/ueditor-plus)
 [![star](https://gitcode.com/modstart-lib/ueditor-plus/star/badge.svg)](https://gitcode.com/modstart-lib/ueditor-plus)
 
+> **Fork 说明**：本仓库 fork 自 [modstart-lib/ueditor-plus](https://github.com/modstart-lib/ueditor-plus)（Apache-2.0，上游持续维护）。当前 `master` 在上游基础上包含 5 个自有提交、落后上游 0 个提交，改动集中在 HTML 净化、AI 代理接入与示例同步，详见下方「安全接入与迁移」及 `docs/security-validation.md`。上游仍在更新，需要时可合并上游变更；本仓库不是官方发布渠道，文档与在线演示以 [open.tecmz.com/ueditor-plus](https://open.tecmz.com/ueditor-plus/) 为准。
+
 > `/dist/` 和 `/dist-min/` 目录分别为构建的非压缩和压缩版代码，可直接使用
 
 ## 功能亮点
