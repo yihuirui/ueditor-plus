@@ -18,6 +18,9 @@ jobs:
         timeout-minutes: 30
         permissions:
             contents: write # Required for creating releases and uploading assets
+        env:
+            NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+            ENABLE_NPM_PUBLISH: ${{ vars.ENABLE_NPM_PUBLISH }}
 
         steps:
             - name: Checkout repository
@@ -81,9 +84,20 @@ jobs:
                     dist.zip \
                     dist-min.zip
 
+            # This step is inherited from upstream and is opt-in for this fork.
+            # A fork does not inherit upstream secrets, and package.json still
+            # declares the upstream package name `ueditor-plus-main`. Publishing
+            # without an explicit opt-in would fail AFTER the release above has
+            # already been created, leaving a confusing half-finished run.
             - name: Publish to npm
-              env:
-                  NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+              if: env.ENABLE_NPM_PUBLISH == 'true' && env.NPM_TOKEN != ''
               run: |
                   echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
                   npm publish --access public
+
+            - name: Report skipped npm publish
+              if: env.ENABLE_NPM_PUBLISH != 'true' || env.NPM_TOKEN == ''
+              run: |
+                  echo "npm publish skipped: publishing is opt-in for this fork."
+                  echo "The GitHub Release above was created successfully."
+                  echo "To publish, first rename the package in package.json, then set the NPM_TOKEN secret and the ENABLE_NPM_PUBLISH repository variable to true."

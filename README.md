@@ -42,11 +42,11 @@
 
 - `Snapshot Build`（`.github/workflows/main.yml`）：`master` 推送或手动触发，执行安全回归、`npm run build`、示例同步一致性校验与产物打包，然后**删除并重建** `snapshot` Release。由于会改写 Release，这里用 `concurrency` 排队而不是取消，避免多个并发推送留下半完成的发布。
 - `Pull Request Verification`（`.github/workflows/verify-pr.yml`）：针对 `master` 的 PR 执行同一组校验但不发布，checkout 关闭了凭据持久化，并用 `concurrency` 取消同一分支上的旧运行。
-- `Release`（`.github/workflows/release.yml`）：仅在推送匹配 `vX.X.X` 的标签时触发，创建版本 Release，并保留从上游继承的 `npm publish` 步骤。该流程刻意没有 `workflow_dispatch`：Release 名称由 `refs/tags/...` 推导，手动派发会产生无效名称。
+- `Release`（`.github/workflows/release.yml`）：仅在推送匹配 `vX.X.X` 的标签时触发，创建版本 Release；从上游继承的 `npm publish` 步骤<strong>默认跳过</strong>，只有同时满足「仓库变量 `ENABLE_NPM_PUBLISH=true`」且「配置了 `NPM_TOKEN`」时才会执行，并会打印跳过原因。该流程刻意没有 `workflow_dispatch`：Release 名称由 `refs/tags/...` 推导，手动派发会产生无效名称。
 
 三个 job 均设置了 `timeout-minutes`，避免构建或发布卡住后长期占用 runner。
 
-> **Fork 边界提示**：`package.json` 的 `repository` / `bugs` 仍指向上游 `modstart-lib/ueditor-plus`，`release.yml` 的 npm 发布也沿用上游包名 `ueditor-plus-main` 和 `NPM_TOKEN`。fork 不会继承上游仓库的 Secrets；若本仓库未单独配置该令牌，标签触发的发布可能在已创建 Release 之后于 `npm publish` 处失败。在仓库所有者确认是否要以自己的名义发布之前，请勿把这一步视为可用，也不要在此处填写上游凭据。
+> **Fork 边界提示（已按保守默认加固）**：`package.json` 的 `repository` / `bugs` 仍指向上游 `modstart-lib/ueditor-plus`，包名仍是上游的 `ueditor-plus-main`。fork 不会继承上游 Secrets，因此 `release.yml` 的发布步骤已改为<strong>默认跳过</strong>，标签推送只会正常创建 GitHub Release，不会再出现「Release 已建成、却在 `npm publish` 处失败」的半完成运行。若将来要以自己的名义发布，必须先修改 `package.json` 的包名与仓库地址，再配置 `NPM_TOKEN` 并把仓库变量 `ENABLE_NPM_PUBLISH` 设为 `true`；在此之前请勿填写任何上游凭据。
 
 ## 使用遇到问题
 
