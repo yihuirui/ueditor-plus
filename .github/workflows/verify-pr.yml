@@ -8,9 +8,16 @@ on:
 permissions:
     contents: read
 
+# These checks have no external side effects, so a newer commit on the same PR
+# can safely cancel an older run.
+concurrency:
+    group: verify-pr-${{ github.ref }}
+    cancel-in-progress: true
+
 jobs:
     verify:
         runs-on: ubuntu-latest
+        timeout-minutes: 20
 
         steps:
             - name: Checkout repository

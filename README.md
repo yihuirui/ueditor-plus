@@ -8,7 +8,7 @@
 [![star](https://gitee.com/modstart-lib/ueditor-plus/badge/star.svg)](https://gitee.com/modstart-lib/ueditor-plus)
 [![star](https://gitcode.com/modstart-lib/ueditor-plus/star/badge.svg)](https://gitcode.com/modstart-lib/ueditor-plus)
 
-> **Fork 说明**：本仓库 fork 自 [modstart-lib/ueditor-plus](https://github.com/modstart-lib/ueditor-plus)（Apache-2.0，上游持续维护）。当前 `master` 在上游基础上包含 5 个自有提交、落后上游 0 个提交，改动集中在 HTML 净化、AI 代理接入与示例同步，详见下方「安全接入与迁移」及 `docs/security-validation.md`。上游仍在更新，需要时可合并上游变更；本仓库不是官方发布渠道，文档与在线演示以 [open.tecmz.com/ueditor-plus](https://open.tecmz.com/ueditor-plus/) 为准。
+> **Fork 说明**：本仓库 fork 自 [modstart-lib/ueditor-plus](https://github.com/modstart-lib/ueditor-plus)（Apache-2.0，上游持续维护）。`master` 基于上游 `master`，另有一组自有提交，改动集中在 HTML 净化、AI 代理接入与示例同步，详见下方「安全接入与迁移」及 `docs/security-validation.md`。自有提交数量与上游差距会随维护变化，请以 [上游对比页面](https://github.com/modstart-lib/ueditor-plus/compare/master...yihuirui:master) 的实时 ahead / behind 为准，本文不再写死具体数字。上游仍在更新，需要时可合并上游变更；本仓库不是官方发布渠道，文档与在线演示以 [open.tecmz.com/ueditor-plus](https://open.tecmz.com/ueditor-plus/) 为准。
 
 > `/dist/` 和 `/dist-min/` 目录分别为构建的非压缩和压缩版代码，可直接使用
 
@@ -35,6 +35,18 @@
 - 客户端净化和文件类型限制不能替代应用后端的鉴权、上传校验，以及存储和展示边界的安全处理。仓库内的 `_demo_server` 是演示接口。
 
 安全回归、构建与浏览器验证方式见 [验证说明](docs/security-validation.md)。
+
+## 持续集成与发布
+
+本仓库在 fork 之后维护三套 GitHub Actions 流水线，均运行在 `ubuntu-latest`，Node.js 版本由 `.nvmrc` 固定为 24，依赖使用 `npm ci --ignore-scripts` 安装：
+
+- `Snapshot Build`（`.github/workflows/main.yml`）：`master` 推送或手动触发，执行安全回归、`npm run build`、示例同步一致性校验与产物打包，然后**删除并重建** `snapshot` Release。由于会改写 Release，这里用 `concurrency` 排队而不是取消，避免多个并发推送留下半完成的发布。
+- `Pull Request Verification`（`.github/workflows/verify-pr.yml`）：针对 `master` 的 PR 执行同一组校验但不发布，checkout 关闭了凭据持久化，并用 `concurrency` 取消同一分支上的旧运行。
+- `Release`（`.github/workflows/release.yml`）：仅在推送匹配 `vX.X.X` 的标签时触发，创建版本 Release，并保留从上游继承的 `npm publish` 步骤。该流程刻意没有 `workflow_dispatch`：Release 名称由 `refs/tags/...` 推导，手动派发会产生无效名称。
+
+三个 job 均设置了 `timeout-minutes`，避免构建或发布卡住后长期占用 runner。
+
+> **Fork 边界提示**：`package.json` 的 `repository` / `bugs` 仍指向上游 `modstart-lib/ueditor-plus`，`release.yml` 的 npm 发布也沿用上游包名 `ueditor-plus-main` 和 `NPM_TOKEN`。fork 不会继承上游仓库的 Secrets；若本仓库未单独配置该令牌，标签触发的发布可能在已创建 Release 之后于 `npm publish` 处失败。在仓库所有者确认是否要以自己的名义发布之前，请勿把这一步视为可用，也不要在此处填写上游凭据。
 
 ## 使用遇到问题
 

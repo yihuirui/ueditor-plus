@@ -6,15 +6,25 @@ on:
             - "master" # 每次推送到 master 分支时触发实时打包
     workflow_dispatch: # 支持在 Actions 页面手动触发
 
+# This workflow deletes and recreates the `snapshot` release. Serialize runs
+# instead of cancelling them so an in-flight run cannot leave a half-written
+# release behind when several pushes land close together.
+concurrency:
+    group: snapshot-build
+    cancel-in-progress: false
+
 jobs:
     snapshot:
         runs-on: ubuntu-latest
+        timeout-minutes: 30
         permissions:
             contents: write # Required for creating/updating releases
 
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
+              with:
+                  persist-credentials: false
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
